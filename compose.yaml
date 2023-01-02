@@ -1,0 +1,29 @@
+name: k8s
+services:
+  control-plane:
+    privileged: true
+    image: kindest/node:v1.26.0
+    volumes:
+    - control-plane:/lib/modules
+    - control-plane:/var
+    - ./deployments:/root/app
+    ports:
+      - 8080:80
+      - 443:443
+  worker:
+    privileged: true
+    image: kindest/node:v1.26.0
+    volumes:
+    - worker:/lib/modules
+    - worker:/var
+  worker2:
+    privileged: true
+    image: kindest/node:v1.26.0
+    volumes:
+    - worker2:/lib/modules
+    - worker2:/var
+
+volumes:
+  control-plane:
+  worker:
+  worker2:

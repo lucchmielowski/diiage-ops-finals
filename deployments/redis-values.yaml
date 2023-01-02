@@ -1,0 +1,5 @@
+auth:
+  password: test1234
+architecture: standalone
+
+## You can add other configurations here if you need
