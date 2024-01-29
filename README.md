@@ -1,84 +1,90 @@
-# Evaluation OPS DIIAGE 3 P1 & 2
+# Evaluation OPS DIIAGE 3
 
-L'evaluation est une evaluation pratique visant a evaluer votre capacite a admnistrer un cluster kubernetes
 
-# Prerequis
+Le but de cette evaluation est de valider vos competences sur les concepts de securite, les concepts avances (operateurs) et le monitoring d'application. Prenez le temps de lire tout l'ennonce avant de vous lancer.
 
-- Lancez la commande `docker-compose up -d` lancer les 3 noeuds de votre cluster kubernetes (ces derniers sont pour l'instant vide a l'exception de tous les outils necessaire pour installer un cluster et ne forment pas encore un cluster kubernetes)
+**Tout votre travail (fichiers de config, YAML, reponses aux questions additionelles, etc) sont a mettre dans le dossier `/reponses`. A la fin du temps imparti, veuillez faire un zip de ce dossier et l'envoyer a Luc CHMIELOWSKI sur Teams.**
 
-- Vous pouvez ensuite vous connecter sur les noeuds grace a la commande `docker exec -it <nom du noeud> bash`
+**:warning: En cas de soucis avec l'enonce n'hesitez pas a contacter Luc CHMIELOWSKI directement**
 
-- Vous pouvez lister les noeuds depuis votre machine en faisant un `docker ps`
 
-- Tout le contenu du dossier `./deployments` est monte dans le noeud `k8s-control-plane-1` au path `/root/app`
+## Contexte
 
-# Exercice
+Nous avons developpe une application (un blog) et sommes pret a la deployer en production, mais avant de la rendre publique, nous voulons creer tout le monitoring necessaire pour s'assurer qu'elle tourne parfaitement.
 
-### Question 1
-En utilisant `kubeadm` boostrapez les noeud pour creer un cluster avec la topologie suivante :
-  - `k8s-control-plane-1`: master
-  - `k8s-worker-1` et `k8s-worker2-1`: nodes
+### Setup: Creation du cluster kind et deploiement de l'application test
 
-A l'issue de cette question, la commande `kubectl get nodes` devra afficher des noeuds comme etant `Ready`.
+Dans cet exercice le code de deploiement de l'application et du cluster sont deja fournis.
 
-### Question 2
+Afin de creer le cluster kind vous pouvez utiliser la commande suivante:
 
-Via la commande `helm` et la [chart de bitnami](https://artifacthub.io/packages/helm/bitnami/redis) installez un redis:
- - dans le namespace `catalog`
- - avec les values contenues dans le fichier dans `deployment/redis-values.yaml` (`/root/app/redis-values.yaml` sur le noeud control-plane)
-
-Pour installer helm:
-```
-curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
-chmod 700 get_helm.sh
-./get_helm.sh
+```bash
+kind create cluster --config=kind.yaml
 ```
 
-Assurez vous que le redis tourne correctement
+Une fois le cluster correctement lance, vous pouvez deployer notre blog en lancant:
 
-Appliquez ensuite le fichier `catalog.yaml` dans le cluster
+```bash
+kubectl apply -f application.yaml
+# Attendre que le pod de l'application soit lance
+kubectl wait --for=condition=Ready pod -l app=blog -n blog --timeout=4m
+```
 
-Assurez vous que les pods `catalog` fonctionnent correctement
+Afin de verifier que le code tourne correctement, vous pouvez utiliser la commande suivante (Notre service utilse un service de type `NodePort` pour exposer notre blog sur le port 8080 de notre machine, on peut donc l'appeler directement) :
 
-> HINT rancher/local-path-provisioner
+```bash
+curl localhost:8080/api/healthz | jq
+```
+
+Vous devriez avoir la reponse suivante:
+
+```json
+{
+  "alive": true
+}
+```
+
+En allant sur votre navigateur au `http://localhost:8080/` vous verrez l'application. Cette derniere compte le nombre de hits sur le endpoint `/`
+
+## Exercice principal
+
+L'application en question emet des metrics qui peuvent etre scrappees par Prometheus sur son endpoint `/api/metrics`.
+
+Entant qu'ops nous voulons donc :
+- installer `prometheus-operator`
+- configurer une instance prometheus pour recuperer les metrics emises par notre blog
+- Mettre en place 2 alertes:
+  - la premiere qui nous `page` quand on a atteint plus de 20 visite sur notre site
+  - la seconde qui nous `page` quand on le pod du blog est dans un mauvais etat pour une periode > 10 secondes
+
+## Questions additonelles
+
+Une fois l'exercice ci dessus termine, vous pouvez repondre a ces questions:
+
+1. Actuellement le compteur de visite est local au pod du blog, proposez un ou plusieurs changements pour que notre service et les alertes mises en place continuent de fonctionner correctement si on decide d'ajouter des pods.
+
+2. Par definition un `controlleur` a besoin de lire et ecrire des resources dans kubernetes. D'un point de vue securite, comment donne t'on les acces necessaires a notre pod ? Donnez un exemple d'implementation permettant aux pod(s) de l'operateur prometheus de `get` toutes les resources dans le namespace `demo`
+
+3. Expliquez en quelques mots le fonctionnement du `prometheus-operator` (uniquement de l'operateur, on ne parlera pas ici de prometheus en lui meme).
+
+4. Nous verifions actuellement que notre service ne crash pas. Devrions nous verifier d'autres indicateurs ?
+
+5. Un CRD vient souvent de pair avec des `admission webhook` que font ils et a quoi servent ils ? Quelle est la difference entre un `validation webhook` et un `mutation webhook` ?
+
+## Liens utiles
+
+- [fichier YAML d'installation de prometheus-operator](https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/bundle.yaml) (`kubectl create -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/bundle.yaml`)
+- [documentation](https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/user-guides/getting-started.md)
+
+## Notes:
 
 
-### Question 3
+- **Vous n'avez normalement pas besoin de Grafana, un serveur rometheus possede une GUI sur le port `9090` par defaut**
+- Une fois l'interface de prometheus atteinte, vous pouvez faire la query suivante : `{container="blog"}` afin de lister toutes les metrics pour notre container
+- Si vous rencontrez l'erreur suivante :`The CustomResourceDefinition "prometheuses.monitoring.coreos.com" is invalid: metadata.annotations: Too long: must have at most 262144 bytes`, utilisez `kubectl create -f` au lieu de `kubectl apply -f`
+- Si vous avez des problemes pour charger l'image du blog depuis dockerhub, vous pouvez la construire et l'importer dans `kind` en faisant:
 
-Appliques le fichier `deployment/presentation.yaml` (`/root/app/presentation.yaml`) dans le namespace `presentation`
-
-Assurez vous ensuite que vous etes capables d'appeler le service depuis _votre machine_ en faisant un `curl localhost:8080/`
-
-Vous devriez recevoir un `HTTP 200` et une reponse au format texte
-
-> HINT: Voici la configuration du cluster `kind` qu'on avait pour travailler en local:
-  ```
-  kind: Cluster
-  apiVersion: kind.x-k8s.io/v1alpha4
-  name: diiage
-  nodes:
-      - role: control-plane
-      kubeadmConfigPatches:
-        - |
-          kind: InitConfiguration
-          nodeRegistration:
-            kubeletExtraArgs:
-              node-labels: "ingress-ready=true"
-      extraPortMappings:
-        - containerPort: 80
-          hostPort: 8080
-          protocol: TCP
-        - containerPort: 443
-          hostPort: 8081
-          protocol: TCP
-    - role: worker
-  ```
-> A noter que vous pouvez ajouter de la configuration sur les noeuds deja existants via `kubectl`
-
-### Question 4
-
-Modifiez et redeployez le fichier `deployments/catalog.yaml` afin:
-- D'avoir 3 replicas
-- De n'autoriser le traffic du service a arriver uniquement qu'a partir du moment ou le endpoint `/get-key` peut traiter les requetes GET
-- Un redemarrage automatique du pod si le endpiont `/get-key` ne repond plus aux requetes GET
-- Reserver 100Mi de Memoire et 100m de CPU aupres du scheduler de kubernetes
+```
+docker build -t luskidotme/blog:v1 application/
+kind load docker-image -n diiage luskidotme/blog:v1
+```
